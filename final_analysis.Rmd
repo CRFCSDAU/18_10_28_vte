@@ -37,7 +37,7 @@ Categorical patient characteristics were were described by their counts and perc
 
 VTE rates and 95% confidence intervals (CIs) were estimated using Poisson regression.
 
-We evaluated the equivalence (and thus non-inferiority) of *`r levels(data$vte_prophylaxis)[25]`* to *`r levels(data$vte_prophylaxis)[24]`* based on the risk difference for VTE, using a margin of 1.0%. We reported both the unadjusted and adjusted risk differences and respective 90% confidence intervals (which is the equivalent of two one-sided tests [TOST] with alpha = 0.05 (REF)). Covariate adjustment was made using the standardized risk difference estimated using the marginal structural binomial regression model outlined in (REF). The covariates were age (years), sex, body mass index (BMI; kg/m2), any history of VTE (none vs DVT vs PE), and procedure (TKR vs THR). Patients with missing covariate data were excluded from the adjusted risk difference models. 
+We evaluated the equivalence (and thus non-inferiority) of *`r levels(data$vte_prophylaxis)[25]`* to *`r levels(data$vte_prophylaxis)[24]`* based on the risk difference for VTE, using a margin of 1.0%. We reported both the unadjusted and adjusted risk differences and respective 90% confidence intervals (which is the equivalent of two one-sided tests [TOST] with alpha = 0.05 (REF)). Covariate adjustment was made using the standardized risk difference estimated using the marginal structural binomial regression model outlined in (REF). The covariates were age (years), sex, body mass index (BMI; kg/m2), any history of VTE (none vs DVT or PE), and procedure (TKR vs THR). Patients with missing covariate data were excluded from the adjusted risk difference models. 
 
 In addition to the head to head comparison between *`r levels(data$vte_prophylaxis)[25]`* and *`r levels(data$vte_prophylaxis)[24]`*, we similarly evaluated the equivalence in the VTE risk difference between patients seen from *2010 to 2012* and those seen from *2013 to 2016*, irrespective of the actual VTE prophylaxis received. This was because *`r levels(data$vte_prophylaxis)[25]`* was almost always used from 2013 on, and very rarely used before 2013 (see supplemental figure 1).   
 
@@ -125,7 +125,8 @@ The overall percentage of patients experiencing a VTE (2010 to 2016) was `r roun
     droplevels() %>%
     mutate(vte_prophylaxis_num = as.numeric(vte_prophylaxis) - 2) %>%
     select(vte_outcome_num, vte_outcome, vte_prophylaxis, 
-           vte_prophylaxis_num, sex, bmi, age, id, procedure, dvt_hx) 
+           vte_prophylaxis_num, sex, bmi, age, id, procedure, dvt_hx, 
+           any_dvt_hx) 
 
 # Summary data needed to use the TOST function  
   s_1 <- group_by(df_tx, vte_prophylaxis) %>%
@@ -269,3 +270,43 @@ The unadjusted VTE risk difference comparing patients seen in *2010-2012* to tho
 
 ```
 
+# Interaction by history of VTE
+
+```{r interaction_dvt_hx}
+
+# Create the IPWs      
+  exposed <- glm(vte_prophylaxis ~ age + sex + bmi + dvt_hx + procedure, 
+                 family = binomial(link = "logit"), data = df_tx)
+  pred_exp <- predict(exposed, type = "response")
+  
+# Stabilize the weights by multiplying each weight by the overall unadjusted
+# probability of that person having exposure level E = e
+  sptw <- 
+    df_tx$vte_prophylaxis_num * mean(df_tx$vte_prophylaxis_num) / pred_exp + 
+    (1 - df_tx$vte_prophylaxis_num) * (1 - mean(df_tx$vte_prophylaxis_num)) / 
+    (1 - pred_exp)
+  
+# Fit linear binomal model to weighted data for E-D association with robuse SEs
+  rd_model <- geeglm(
+    vte_outcome_num ~ vte_prophylaxis_num * any_dvt_hx, 
+    family = binomial(link = "identity"), 
+    weight = sptw, id = id, data = df_tx
+    ) %>% tidy()
+   
+# No evidence of interaction
+  
+# Percentage with VTE by tx and hx, with 95% CIs
+  interaction <- group_by(df_tx, any_dvt_hx, vte_prophylaxis_num) %>%
+    summarise(pop = n(),
+              vte_count = sum(as.numeric(vte_outcome) - 1),
+              vte_pct = round(mean(as.numeric(vte_outcome) - 1), 4) * 100,
+              incidence = signif(vte_count/pop*100, 4),
+              se = 1/sqrt(vte_count),
+              ll = signif(exp(log(incidence) - 1.96 * se), 4),
+              ul = signif(exp(log(incidence) + 1.96 * se), 4),
+              ci = paste(ll, " to ", ul)) %>%
+    mutate(mean_incidence = overall)
+  
+# Numbers are just too small to tell  
+
+```
