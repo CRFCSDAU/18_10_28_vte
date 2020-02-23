@@ -135,7 +135,7 @@ The overall percentage of patients experiencing a VTE (2010 to 2016) was `r roun
 # TOST  
   tost_1 <- TOSTtwo.prop(
     s_1$prop[2], s_1$prop[1], s_1$n[2], s_1$n[1], -0.01, 0.01, 0.05, 
-    plot = FALSE
+    plot = FALSE, verbose = FALSE
     )
   
 ```
@@ -167,9 +167,9 @@ The overall percentage of patients experiencing a VTE (2010 to 2016) was `r roun
     weight = sptw, id = id, data = df_tx
     ) %>% tidy()
    
-  rd <- signif(rd_model[2, 2] * 100, 2)
-  ll <- signif((rd_model[2, 2] - (1.64 * rd_model[2, 3])) * 100, 2)
-  ul <- signif((rd_model[2, 2] + (1.64 * rd_model[2, 3])) * 100, 2)
+  rd <- as.numeric(signif(rd_model[2, 2] * 100, 2))
+  ll <- as.numeric(signif((rd_model[2, 2] - (1.64 * rd_model[2, 3])) * 100, 2))
+  ul <- as.numeric(signif((rd_model[2, 2] + (1.64 * rd_model[2, 3])) * 100, 2))
 
 ```
 
@@ -216,9 +216,9 @@ The unadjusted VTE risk difference comparing *`r levels(data$vte_prophylaxis)[25
     weight = sptw, id = id, data = df_year
     ) %>% tidy()
    
-  rd_2 <- signif(rd_model_2[2, 2] * 100, 2)
-  ll_2 <- signif((rd_model_2[2, 2] - (1.64 * rd_model_2[2, 3])) * 100, 2)
-  ul_2 <- signif((rd_model_2[2, 2] + (1.64 * rd_model_2[2, 3])) * 100, 2)
+  rd_2 <- as.numeric(signif(rd_model_2[2, 2] * 100, 2))
+  ll_2 <- as.numeric(signif((rd_model_2[2, 2] - (1.64 * rd_model_2[2, 3])) * 100, 2))
+  ul_2 <- as.numeric(signif((rd_model_2[2, 2] + (1.64 * rd_model_2[2, 3])) * 100, 2))
 
 ``` 
 
