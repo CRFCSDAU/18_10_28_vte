@@ -135,7 +135,7 @@ The overall percentage of patients experiencing a VTE (2010 to 2016) was `r roun
 # TOST  
   tost_1 <- TOSTtwo.prop(
     s_1$prop[2], s_1$prop[1], s_1$n[2], s_1$n[1], -0.01, 0.01, 0.05, 
-    plot = FALSE, verbose = FALSE
+    plot = TRUE, verbose = TRUE
     )
   
 ```
@@ -188,7 +188,7 @@ The unadjusted VTE risk difference comparing *`r levels(data$vte_prophylaxis)[25
   
   tost_2 <- TOSTtwo.prop(
     s_2$prop[2], s_2$prop[1], s_2$n[2], s_2$n[1], -0.01, 0.01, 0.05, 
-    plot = FALSE
+    plot = TRUE, verbose = TRUE
     )
   
 ```
@@ -272,6 +272,8 @@ The unadjusted VTE risk difference comparing patients seen in *2010-2012* to tho
 
 # Interaction by history of VTE
 
+Numbers are too small to tell. 
+
 ```{r interaction_dvt_hx}
 
 # Create the IPWs      
@@ -310,3 +312,10 @@ The unadjusted VTE risk difference comparing patients seen in *2010-2012* to tho
 # Numbers are just too small to tell  
 
 ```
+
+```{r sysinfo}
+
+  DescTools::SysInfo()
+
+```
+
