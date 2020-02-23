@@ -1,0 +1,271 @@
+---
+title: ''
+author: ''
+date: ''
+output: 
+  html_document:
+    df_print: paged
+    keep_md: true
+  word_document:
+    reference_docx: style.1.docx
+---
+
+```{r setup, include = FALSE}
+
+  knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+                        fig.width  = 6 * 1.67, fig.height = 6)
+
+  library(tidyverse)
+  library(viridis)
+  library(TOSTER)
+  library(rms)
+  library(pander)
+  library(broom)
+  library(geepack)
+  library(ggbeeswarm)
+  library(flextable)
+
+  load("data/data.RData")
+  source("scripts/functions.R")
+  
+```
+
+
+# Statistical methods
+
+Categorical patient characteristics were were described by their counts and percentages in each category. Continuous characteristics were described by their means and SDs, medians and IQRs, and total ranges. 
+
+VTE rates and 95% confidence intervals (CIs) were estimated using Poisson regression.
+
+We evaluated the equivalence (and thus non-inferiority) of *`r levels(data$vte_prophylaxis)[25]`* to *`r levels(data$vte_prophylaxis)[24]`* based on the risk difference for VTE, using a margin of 1.0%. We reported both the unadjusted and adjusted risk differences and respective 90% confidence intervals (which is the equivalent of two one-sided tests [TOST] with alpha = 0.05 (REF)). Covariate adjustment was made using the standardized risk difference estimated using the marginal structural binomial regression model outlined in (REF). The covariates were age (years), sex, body mass index (BMI; kg/m2), any history of VTE (none vs DVT vs PE), and procedure (TKR vs THR). Patients with missing covariate data were excluded from the adjusted risk difference models. 
+
+In addition to the head to head comparison between *`r levels(data$vte_prophylaxis)[25]`* and *`r levels(data$vte_prophylaxis)[24]`*, we similarly evaluated the equivalence in the VTE risk difference between patients seen from *2010 to 2012* and those seen from *2013 to 2016*, irrespective of the actual VTE prophylaxis received. This was because *`r levels(data$vte_prophylaxis)[25]`* was almost always used from 2013 on, and very rarely used before 2013 (see supplemental figure 1).   
+
+All analysis were conducted using the R Project for Statistical Computing v3.4.3 (REF). 
+
+# Results
+
+```{r table_1}
+
+# Key variables
+  table_1 <- select(
+    data, sex, age, over_65, bmi, obese, stay_length, procedure, vte_type, 
+    anticoagulant_type_2, dvt_hx, vte_prophylaxis_2
+    )
+
+  data_frame(
+    Variable       = name.1(table_1),
+    N              = n.miss(table_1),
+    "Mean SD"      = summary.1(table_1),
+    "Median [IQR]" = med.iqr(table_1),
+    "(Min, Max)"   = min.max(table_1)
+    ) %>% flextable()
+
+  
+```
+
+The sample included `r nrow(data)` patients seen between `r min(data$procedure_year)` and `r max(data$procedure_year)`. The median age was `r round(mean(data$age), 1)` years (range = `r min(data$age)` to `r max(data$age)`). 
+
+```{r yearly_incidence}
+
+# Percentage with VTE, over all years
+  overall <- round(table(data$vte_outcome)["Yes"] /
+                     sum(table(data$vte_outcome)), 5) * 100
+
+# Percentage with VTE in each year, with 95% CIs
+  counts <- group_by(data, procedure_year) %>%
+    summarise(pop = n(),
+              vte_count = sum(as.numeric(vte_outcome) - 1),
+              vte_pct = round(mean(as.numeric(vte_outcome) - 1), 4) * 100,
+              incidence = signif(vte_count/pop*100, 4),
+              se = 1/sqrt(vte_count),
+              ll = signif(exp(log(incidence) - 1.96 * se), 4),
+              ul = signif(exp(log(incidence) + 1.96 * se), 4),
+              ci = paste(ll, " to ", ul)) %>%
+    mutate(mean_incidence = overall)
+
+```
+
+
+The overall percentage of patients experiencing a VTE (2010 to 2016) was `r round(table(data$vte_outcome)["Yes"] / sum(table(data$vte_outcome)), 4) * 100`%. The highest rate of `r max(counts$vte_pct)`% was in `r counts$procedure_year[counts$vte_pct == max(counts$vte_pct)]`, while the lowest rate of `r min(counts$vte_pct)`% was in `r counts$procedure_year[counts$vte_pct == min(counts$vte_pct)]`. VTE rates and 95% CIs across study all years are given in Figure 1. 
+
+*Figure 1. Yearly VTE incidence (95% CIs), regardless of VTE prophylaxis.*
+
+```{r vte_by_year_plot}
+
+   ggplot(counts, 
+          aes(y = incidence, x = procedure_year, ymax = ul, ymin = ll)) +
+     geom_hline(yintercept = max(counts$incidence), size = 1,
+                alpha = 0.3, linetype = "dashed") +
+     geom_hline(yintercept = min(counts$incidence), size = 1,
+                alpha = 0.3, linetype = "dashed") +
+     geom_hline(aes(yintercept = overall), linetype = "dashed", color = "red") +
+     geom_pointrange(size = 1) +
+     geom_line(size = 1) +
+     theme_minimal() +
+     scale_x_continuous(breaks = 2010:2016) +
+     scale_color_viridis(guide = FALSE, discrete = TRUE) +
+     xlab("Year") +
+     ylab("VTE cases per 100 patients") +
+     ylim(0, 3)
+     
+  ggsave("plots/f1_yearly_incidence.pdf", device = "pdf", dpi = 600)
+
+
+```
+
+```{r tost_by_treatment}
+
+# Non-equivalance with the two one-sided test procedure
+
+# Data set to let us model effects of different treatments
+  df_tx <- data %>%
+    filter(vte_prophylaxis %in% levels(vte_prophylaxis)[24:25] &
+           !is.na(vte_prophylaxis)) %>%
+    droplevels() %>%
+    mutate(vte_prophylaxis_num = as.numeric(vte_prophylaxis) - 2) %>%
+    select(vte_outcome_num, vte_outcome, vte_prophylaxis, 
+           vte_prophylaxis_num, sex, bmi, age, id, procedure, dvt_hx) 
+
+# Summary data needed to use the TOST function  
+  s_1 <- group_by(df_tx, vte_prophylaxis) %>%
+    summarise(n = n(), prop = mean(as.numeric(vte_outcome) - 1, na.rm = TRUE))
+
+# TOST  
+  tost_1 <- TOSTtwo.prop(
+    s_1$prop[2], s_1$prop[1], s_1$n[2], s_1$n[1], -0.01, 0.01, 0.05, 
+    plot = FALSE
+    )
+  
+```
+
+```{r adjusted_by_treatment}
+
+# These are the covariate adjusted standardized risk difference estimated with
+# marginal structural binomial regression models. REF:
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6372130/
+
+  df_tx <- df_tx[complete.cases(df_tx), ] 
+
+# Create the IPWs      
+  exposed <- glm(vte_prophylaxis ~ age + sex + bmi + dvt_hx + procedure, 
+                 family = binomial(link = "logit"), data = df_tx)
+  pred_exp <- predict(exposed, type = "response")
+  
+# Stabilize the weights by multiplying each weight by the overall unadjusted
+# probability of that person having exposure level E = e
+  sptw <- 
+    df_tx$vte_prophylaxis_num * mean(df_tx$vte_prophylaxis_num) / pred_exp + 
+    (1 - df_tx$vte_prophylaxis_num) * (1 - mean(df_tx$vte_prophylaxis_num)) / 
+    (1 - pred_exp)
+  
+# Fit linear binomal model to weighted data for E-D association with robuse SEs
+  rd_model <- geeglm(
+    vte_outcome_num ~ vte_prophylaxis_num, 
+    family = binomial(link = "identity"), 
+    weight = sptw, id = id, data = df_tx
+    ) %>% tidy()
+   
+  rd <- signif(rd_model[2, 2] * 100, 2)
+  ll <- signif((rd_model[2, 2] - (1.64 * rd_model[2, 3])) * 100, 2)
+  ul <- signif((rd_model[2, 2] + (1.64 * rd_model[2, 3])) * 100, 2)
+
+```
+
+The unadjusted VTE risk difference comparing *`r levels(data$vte_prophylaxis)[25]`* to *`r levels(data$vte_prophylaxis)[24]`* was `r signif(tost_1$dif * 100, 2)`% with a 90% TOST CI of `r signif(tost_1$LL_CI_TOST * 100, 2)`% to `r signif(tost_1$UL_CI_TOST * 100, 2)`%, which suggests equivalence between the two. The adjusted results were not appreciably different (RD `r rd`% (90% TOST CI `r ll` to `r ul`%)).
+
+
+```{r tost_by_year}
+
+  df_year <- select(
+    data, vte_outcome_num, vte_outcome, year_group, year_group_num, sex, bmi, 
+    age, id, procedure, dvt_hx
+    )
+
+  s_2 <- group_by(df_year, year_group) %>%
+    summarise(n = n(), prop = mean(as.numeric(vte_outcome) - 1, na.rm = TRUE))
+  
+  tost_2 <- TOSTtwo.prop(
+    s_2$prop[2], s_2$prop[1], s_2$n[2], s_2$n[1], -0.01, 0.01, 0.05, 
+    plot = FALSE
+    )
+  
+```
+
+
+```{r adjusted_by_year}
+
+  df_year <- df_year[complete.cases(df_year), ] 
+
+# Create the IPWs      
+  exposed <- glm(year_group ~ age + sex + bmi + dvt_hx + procedure, 
+                 family = binomial(link = "logit"), data = df_year)
+  pred_exp <- predict(exposed, type = "response")
+  
+# Stabilize  
+  sptw <- 
+    df_year$year_group_num * mean(df_year$year_group_num) / pred_exp + 
+    (1 - df_year$year_group_num) * (1-mean(df_year$year_group_num)) / 
+    (1 - pred_exp)
+  
+# Fit linear binomal model to weighted data for E-D association with robuse SEs
+  rd_model_2 <- geeglm(
+    vte_outcome_num ~ year_group_num, 
+    family = binomial(link = "identity"), 
+    weight = sptw, id = id, data = df_year
+    ) %>% tidy()
+   
+  rd_2 <- signif(rd_model_2[2, 2] * 100, 2)
+  ll_2 <- signif((rd_model_2[2, 2] - (1.64 * rd_model_2[2, 3])) * 100, 2)
+  ul_2 <- signif((rd_model_2[2, 2] + (1.64 * rd_model_2[2, 3])) * 100, 2)
+
+``` 
+
+The unadjusted VTE risk difference comparing patients seen in *2010-2012* to those seen in *2013-2016* was `r signif(tost_2$dif * 100, 2)`% with a 90% TOST CI of `r signif(tost_2$LL_CI_TOST * 100, 2)`% to `r signif(tost_2$UL_CI_TOST * 100, 2)`%, which suggests equivalence between the two. The adjusted results were not appreciably different (RD `r rd_2`% (90% TOST CI `r ll_2` to `r ul_2`%)).
+
+
+# Demographic predictors
+
+```{r demographic_predictors}
+
+  demo <- glm(vte_outcome_num ~ age + sex + bmi +
+                any_dvt_hx, 
+              family = binomial(link = "logit"), data = data)
+
+  demo2 <- glm(vte_outcome_num ~ age + sex + bmi +
+                dvt_hx, 
+              family = binomial(link = "logit"), data = data)
+
+  sjPlot::tab_model(demo, file = "tables/demo.html")
+  
+  sjPlot::tab_model(demo2, file = "tables/demo2.html")
+
+```
+
+
+# Supplemental material
+
+*Supplemental Figure 1. Among the most commonly used types of VTE prophylaxis, which were used each year? (2010 to 2016)*
+```{r prophylaxis_types_year_plot}
+
+  filter(data, vte_prophylaxis %in% levels(vte_prophylaxis)[20:25] &
+         !is.na(vte_prophylaxis)) %>%
+  ggplot(aes(x = factor(procedure_year), fill = vte_prophylaxis)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_fill_viridis("", discrete = TRUE, direction = -1) +
+    theme(panel.grid = element_blank()) + 
+    xlab("") +
+    ylab("Proportion of patients") +
+    ggtitle("")
+
+  ggsave("plots/sf1_vte_types_year.pdf", device = "pdf", dpi = 600)
+
+```
+
+```{r code_book}
+
+  print(summarytools::dfSummary(data), method = "render")
+
+```
+
